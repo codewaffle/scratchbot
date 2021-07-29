@@ -1,10 +1,12 @@
 import argparse
 import logging
 import re
+from traceback import format_exc
 
 from slack_bolt.async_app import AsyncApp
 
-import imagine_s3
+import imagine
+from config import VQGAN_ZERORPC_ADDRESS
 from secrets import SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET
 
 logging.basicConfig(level=logging.DEBUG)
@@ -20,7 +22,7 @@ async def on_stop(say):
 
     if is_working:
         is_working = False
-        imagine_s3.stop()
+        imagine.stop()
         await say('Imagination stopped!')
 
 
@@ -37,36 +39,56 @@ async def on_imagine(say, message, client):
 
     try:
         result = await say(f'Imagining `{text}`, please wait!')
-        print(result)
 
         response = result.data
 
-        last_image_url = ''
+        last_url = ''
 
         completion_status = 'COMPLETE'
 
-        for image_url in imagine_s3.imagine_yield_iteration_urls(text):
-            last_image_url = image_url
-            await client.chat_update(
-                channel=response['channel'],
-                ts=response['ts'],
-                blocks=[{
-                    "type": "image",
-                    "title": {
-                        "type": "plain_text",
-                        "text": f'WORKING (type `.stop` to abort): {text}'
-                    },
-                    "image_url": image_url,
-                    "alt_text": text
-                }]
-            )
+        for url in imagine.yield_s3_urls_for_prompt(text, compile_gif=True):
+            if url.endswith('.gif'):  # BOOOOO slack can't do .mp4 without direct upload, try gifs
+                # post videos directly
+                await client.chat_postMessage(
+                    channel=response['channel'],
+                    blocks=[{
+                        "type": "image",
+                        "title": {
+                            "type": "plain_text",
+                            "text": f'{text}'
+                        },
+                        "image_url": url,
+                        "alt_text": text
+                    }]
+                )
+
+            else:
+                # otherwise replace existing message
+                # need to save this to update the message one last time
+                last_url = url
+
+                await client.chat_update(
+                    channel=response['channel'],
+                    ts=response['ts'],
+                    blocks=[{
+                        "type": "image",
+                        "title": {
+                            "type": "plain_text",
+                            "text": f'WORKING (type `.stop` to abort): {text}'
+                        },
+                        "image_url": url,
+                        "alt_text": text
+                    }]
+                )
 
             if not is_working:
+                # allow time to stop after each tieration
                 completion_status = 'STOPPED'
                 break
 
         # send one final message with completion status
         is_working = False
+
         await client.chat_update(
             channel=response['channel'],
             ts=response['ts'],
@@ -76,13 +98,14 @@ async def on_imagine(say, message, client):
                     "type": "plain_text",
                     "text": f'{completion_status}: {text}'
                 },
-                "image_url": last_image_url,
+                "image_url": last_url,
                 "alt_text": text
             }]
         )
     except Exception as exc:
         is_working = False
-        await say(f'EXCEPTION:\n```{str(exc)}```')
+
+        await say(f'EXCEPTION:\n```{format_exc()}```')
         return
 
 
@@ -90,15 +113,17 @@ async def on_imagine(say, message, client):
 async def handle_unhandled_message():
     pass
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--bind', dest='bind', action='store_true')
+    parser.add_argument('--bind')
     args = parser.parse_args()
 
     if args.bind:
-        imagine_s3.bind('tcp://0.0.0.0:4242')
+        imagine.bind(args.bind)
     else:
         # connect to VQGAN service running on another machine (adjust if running on a single machine)
-        imagine_s3.connect('tcp://192.168.1.178:4242')
+        imagine.connect(VQGAN_ZERORPC_ADDRESS)
 
     app.start(3433)
+

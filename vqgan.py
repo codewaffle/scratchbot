@@ -272,8 +272,6 @@ cutn = 32
 cut_pow = 1.
 step_size = 0.1
 
-display_freq = 25
-
 
 class ArgumentParserError(Exception):
     pass
@@ -300,15 +298,17 @@ class RPCServer:
     @zerorpc.stream
     def imagine(self, input_text):
         if self.is_working:
-            yield 'ERROR: Working'
+            yield 'ERROR: VQGan is still working'
             return
 
-        parser = BetterArgumentParser()
-        parser.add_argument("prompt", nargs='+')
+        parser = BetterArgumentParser(add_help=False, usage=argparse.SUPPRESS)
+        parser.add_argument("prompt", nargs='*')
         parser.add_argument('--width', default=320, type=int)
         parser.add_argument('--height', default=320, type=int)
         parser.add_argument('--init_image', default='')
+        parser.add_argument('--init_weight', default=0, type=float)
         parser.add_argument('--max_iterations', default=500, type=int)
+        parser.add_argument('--help', action='store_true')
 
         try:
             args = parser.parse_args(input_text.split())
@@ -318,6 +318,10 @@ class RPCServer:
 
         print("ARGUMENTS")
         print(args)
+
+        if args.help or not args.prompt:
+            yield parser.format_help()
+            return
 
         self.is_working = True
 
@@ -390,7 +394,7 @@ class RPCServer:
                 embed = perceptor.encode_text(clip.tokenize(txt).to(device)).float()
                 prepared_prompts.append(Prompt(embed, weight, stop).to(device))
 
-            # image prompts not adapted
+            # image prompts not adapted, also not that useful?
             # for prompt in args.image_prompts:
             #     path, weight, stop = parse_prompt(prompt)
             #     img = Image.open(path)
@@ -434,26 +438,18 @@ class RPCServer:
 
                 result = []
 
-                # init_weight not adapted yet
-                # if args.init_weight:
-                #     # result.append(F.mse_loss(z, z_orig) * args.init_weight / 2)
-                #     result.append(F.mse_loss(z, torch.zeros_like(z_orig)) * ((1 / torch.tensor(i * 2 + 1)) * args.init_weight) / 2)
+                if args.init_weight:
+                    # result.append(F.mse_loss(z, z_orig) * args.init_weight / 2)
+                    result.append(F.mse_loss(z, torch.zeros_like(z_orig)) * ((1 / torch.tensor(i * 2 + 1)) * args.init_weight) / 2)
 
                 for prompt in prepared_prompts:
                     result.append(prompt(iii))
-
-                # img = np.array(out.mul(255).clamp(0, 255)[0].cpu().detach().numpy().astype(np.uint8))[:, :, :]
-                # img = np.transpose(img, (1, 2, 0))
-                # imageio.imwrite('./steps/' + str(i) + '.png', np.array(img))
 
                 return result
 
             def train(i):
                 opt.zero_grad()
                 lossAll = ascend_txt(i)
-                if i % display_freq == 0:
-                    checkin(i, lossAll)
-
                 loss = sum(lossAll)
                 loss.backward()
                 opt.step()
@@ -467,12 +463,11 @@ class RPCServer:
                 gevent.sleep(0.005)
                 train(_i)
 
-                if _i % display_freq == 0:
-                    yield _i, take_sample()
+                yield _i, take_sample()
 
-                    if _i >= args.max_iterations:
-                        self.is_working = False
-                        break
+                if _i >= args.max_iterations:
+                    self.is_working = False
+                    break
 
                 _i += 1
         except:
@@ -502,7 +497,3 @@ if __name__ == '__main__':
     #
     # for iteration_number, image_bytes_jpeg in service.imagine('gandalf sprite sheet'):
     #     do_something_to_save_or_display(image_bytes_jpeg)
-else:
-    print('phone home')
-    s.connect('tcp://home.codewaffle.com:4242')
-    s.run()

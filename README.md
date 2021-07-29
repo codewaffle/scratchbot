@@ -24,10 +24,10 @@ Roughly:
 
 - `vqgan.py` runs a ZeroRPC server that offers `imagine(input_text)` and `stop()` commands that the other pieces connect
   to.
-- `slack.py` runs a Slack bot that interacts with `imagine_s3.py` to upload images to S3 and return CloudFront URLs.
+- `slack.py` runs a Slack bot that interacts with `imagine.py` to upload images to S3 and return CloudFront URLs.
     - Requires `secrets.py` to be present and configured with AWS and Slack credentials (see `secrets.example.py`)
-- `imagine_cli.py` is a command-line alternative to `slack.py + imagine_s3.py` that outputs images to a local subfolder
-  and requires no external cloud accounts.
+- `imagine.py` can also be run as a stand-alone command-line alternative to `slack.py` that outputs images and video to
+  a local subfolder and requires no external cloud accounts.
 
 # License
 
