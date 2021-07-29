@@ -23,7 +23,6 @@
 import argparse
 import io
 import math
-import shlex
 
 import gevent
 import zerorpc
@@ -39,8 +38,6 @@ from tqdm.notebook import tqdm
 
 import clip
 import kornia.augmentation as K
-import numpy as np
-import imageio
 from PIL import ImageFile, Image
 import requests
 import os
@@ -314,7 +311,7 @@ class RPCServer:
         parser.add_argument('--max_iterations', default=500, type=int)
 
         try:
-            args = parser.parse_args(shlex.split(input_text))
+            args = parser.parse_args(input_text.split())
         except ArgumentParserError as exc:
             yield 'ERROR: {}'.format(exc)
             return
